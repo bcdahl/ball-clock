@@ -20,6 +20,7 @@ func main() {
 	RunForTime(30, 325)
 }
 
+// Given a number of balls display how many days until the balls return to their original order
 func FindDaysToRepeat(balls int) {
 	if balls < 27 || balls > 127 {
 		fmt.Println("Balls must be in the range of 27 - 127")
@@ -35,9 +36,10 @@ func FindDaysToRepeat(balls int) {
 	fmt.Printf("%v balls cycle after %v days.\n", balls, clock.daysToRepeat)
 }
 
+// Run a standard clock for a specified time. Output the time and state of the clock (if specified)
 func RunClock(timeToRun time.Duration, printStacks bool) {
 	timerStop := time.NewTimer(timeToRun).C
-	timerChan := time.NewTicker(time.Second).C
+	timerChan := time.NewTicker(time.Second * 60).C
 	clock := CreateBallClock(30)
 	fmt.Println(clock.Time())
 	for {
@@ -54,9 +56,15 @@ func RunClock(timeToRun time.Duration, printStacks bool) {
 	}
 }
 
+// Given an initial count of balls run for the specified number of minutes
+// When the time is reached output a json message that displays the current state of the clock
 func RunForTime(balls int, minutes int) {
 	if balls < 27 || balls > 127 {
 		fmt.Println("Balls must be in the range of 27 - 127")
+		return
+	}
+	if minutes < 0 {
+		fmt.Println("Minutes must be > 0")
 		return
 	}
 	clock := CreateBallClock(balls)
@@ -69,14 +77,7 @@ func RunForTime(balls int, minutes int) {
 	fmt.Printf("{\"Min\":%v,\"FiveMin\":%v,\"Hour\":%v,\"Main\":%v}", clock.minute, clock.fiveMinute, clock.hour, clock.queue)
 }
 
-type BallList interface {
-	Push(ball ClockBall) error
-	Pop() (ball ClockBall, err error)
-	IsFull() bool
-	IsEmpty() bool
-	Count() int
-}
-
+// Implements a Queue to maintain the main collection of balls (FIFO)
 type BallQueue struct {
 	head  int
 	tail  int
@@ -84,6 +85,7 @@ type BallQueue struct {
 	balls []ClockBall
 }
 
+// Push a ball on to the queue
 func (q *BallQueue) Push(ball ClockBall) error {
 	if q.IsFull() {
 		return errors.New("Can't add any more")
@@ -97,6 +99,7 @@ func (q *BallQueue) Push(ball ClockBall) error {
 	return nil
 }
 
+// Pop a ball off the queue
 func (q *BallQueue) Pop() (ball ClockBall, err error) {
 	if q.IsEmpty() {
 		return ball, errors.New("Nothing to give you")
@@ -111,18 +114,22 @@ func (q *BallQueue) Pop() (ball ClockBall, err error) {
 	return ball, nil
 }
 
+// check if it is full
 func (q *BallQueue) IsFull() bool {
 	return q.count == len(q.balls)
 }
 
+// Check if it is empty
 func (q *BallQueue) IsEmpty() bool {
 	return q.count == 0
 }
 
+// How many balls are in the queue
 func (q *BallQueue) Count() int {
 	return q.count
 }
 
+// Determine if the order of the balls has returned back to its starting order
 func (q *BallQueue) HasRepeated() bool {
 	if !q.IsFull() {
 		return false
@@ -145,6 +152,8 @@ func (q *BallQueue) HasRepeated() bool {
 	return ordered
 }
 
+// Print the current state of the Queue
+// [b1,b2,b3,b5,...]
 func (q BallQueue) String() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("[")
@@ -165,11 +174,13 @@ func (q BallQueue) String() string {
 	return buffer.String()
 }
 
+// Maintain a Stack of balls (FILO)
 type BallStack struct {
 	head  int
 	balls []ClockBall
 }
 
+// Push a ball on to the Stack
 func (q *BallStack) Push(ball ClockBall) error {
 	if q.IsFull() {
 		return errors.New("Can't add any more")
@@ -179,6 +190,7 @@ func (q *BallStack) Push(ball ClockBall) error {
 	return nil
 }
 
+// Pop a ball off of the Stack
 func (q *BallStack) Pop() (ball ClockBall, err error) {
 	if q.IsEmpty() {
 		return ball, errors.New("Nothing to give you")
@@ -189,18 +201,23 @@ func (q *BallStack) Pop() (ball ClockBall, err error) {
 	return ball, nil
 }
 
+// Is the Stack full?
 func (q *BallStack) IsFull() bool {
 	return q.head == len(q.balls)
 }
 
+// Is the Stack Empty?
 func (q *BallStack) IsEmpty() bool {
 	return q.head == 0
 }
 
+// How many balls are on the Stack?
 func (q *BallStack) Count() int {
 	return q.head
 }
 
+// Create a string that represents the state of the Stack
+// [b1,b2,b3,...]
 func (q BallStack) String() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("[")
@@ -214,27 +231,32 @@ func (q BallStack) String() string {
 	return buffer.String()
 }
 
+// Maintain all of the necessary information about the state of the Clock
 type BallClock struct {
-	queue        BallQueue
-	minute       BallStack
-	fiveMinute   BallStack
-	hour         BallStack
-	halfDays     int
-	daysToRepeat int
-	totalMinutes int
-	advanceTime  chan int
-	done         chan int
+	queue        BallQueue // Main collection of balls to use
+	minute       BallStack // Indicate the number of minutes that have passed
+	fiveMinute   BallStack // Indicate the number of Five minute durations that have passed
+	hour         BallStack // Indicate the number of hours that have passed
+	halfDays     int // maintain the number of full iterations of the Clock == 12 hours
+	daysToRepeat int // Once determined, this will hold the number of days it took to repeat the main Queue of balls
+	totalMinutes int // A running total of the elapsed minutes
+	advanceTime  chan int // The channel to signal when the clock should advance
+	done         chan int // The channel that a ball from the Queue should signal when it has reached its final position during a Tick
 }
 
+// A struct that represents a ball in transit
 type ClockBallInTransit struct {
 	ball ClockBall
-	done chan int
+	done chan int // The channel this Ball should signal when it is done moving. <nil> if it is not moving from the Queue
 }
 
+// Simple struct that holds the balls number
 type ClockBall struct {
 	number int
 }
 
+// The ball has reached its final stop, so signal the done channel if it is not <nil>
+// Clear the channel once it has been signaled
 func (b *ClockBallInTransit) Done() {
 	if b.done != nil {
 		c := b.done
@@ -243,11 +265,17 @@ func (b *ClockBallInTransit) Done() {
 	}
 }
 
+// Perform a clock tick
+// The tick is completed when the clock says it is
 func (c *BallClock) Tick() {
 	c.advanceTime <- 1
 	<-c.done
 }
 
+// Initialize the Clocks queue with the specified number of balls
+// Return the needed channels for the upstream states
+// ballReturn channel is the channel that all states should use to return balls that are no longer needed
+// ballAdvance channel is the channel that the Main state will use to send a ball to the next state
 func (c *BallClock) InitQueue(balls int) (ballReturn chan ClockBallInTransit, ballAdvance chan ClockBallInTransit) {
 	c.queue = BallQueue{
 		balls: make([]ClockBall, balls)}
@@ -289,11 +317,15 @@ func (c *BallClock) InitQueue(balls int) (ballReturn chan ClockBallInTransit, ba
 	return ballReturn, ballAdvance
 }
 
+// Move the balls on one of the Stacks (Minute, FiveMinute, Hour)
+// advance channel is the channel on which to listen for incoming balls from the previous state
+// ballReturn channel is the channel to use to return balls that are no longer needed
+// out channel is the channel to use to send a ball to the next state
 func MoveBalls(s *BallStack, advance chan ClockBallInTransit, ballReturn chan ClockBallInTransit, out chan ClockBallInTransit) {
 	for {
 		select {
 		case bit := <-advance:
-			// Is this the last ball?
+			// Is this the last ball that will fit into this state?
 			if s.IsFull() {
 				// Return all the balls
 				for {
@@ -314,7 +346,7 @@ func MoveBalls(s *BallStack, advance chan ClockBallInTransit, ballReturn chan Cl
 			} else {
 				// Just save it
 				err := s.Push(bit.ball)
-				// Ball has reached the end of it's jorney
+				// Ball has reached the end of it's journey
 				bit.Done()
 				if err != nil {
 					fmt.Println(err)
@@ -325,6 +357,10 @@ func MoveBalls(s *BallStack, advance chan ClockBallInTransit, ballReturn chan Cl
 	}
 }
 
+// Initialize the Minute State
+// minuteAdvance channel is the channel on which to listen for incoming balls from the previous state
+// ballReturn channel is the channel to use to return balls that are no longer needed
+// return a channel to use to send a ball to the next state
 func (c *BallClock) InitMinute(minuteAdvance chan ClockBallInTransit, ballReturn chan ClockBallInTransit) chan ClockBallInTransit {
 	c.minute = BallStack{balls: make([]ClockBall, 4)}
 	out := make(chan ClockBallInTransit)
@@ -332,6 +368,10 @@ func (c *BallClock) InitMinute(minuteAdvance chan ClockBallInTransit, ballReturn
 	return out
 }
 
+// Initialize the FiveMinute State
+// fiveMinuteAdvance channel is the channel on which to listen for incoming balls from the previous state
+// ballReturn channel is the channel to use to return balls that are no longer needed
+// return a channel to use to send a ball to the next state
 func (c *BallClock) InitFiveMinute(fiveMinuteAdvance chan ClockBallInTransit, ballReturn chan ClockBallInTransit) chan ClockBallInTransit {
 	c.fiveMinute = BallStack{balls: make([]ClockBall, 11)}
 	out := make(chan ClockBallInTransit)
@@ -339,12 +379,16 @@ func (c *BallClock) InitFiveMinute(fiveMinuteAdvance chan ClockBallInTransit, ba
 	return out
 }
 
+// Initialize the Hour State
+// hourAdvance channel is the channel on which to listen for incoming balls from the previous state
+// ballReturn channel is the channel to use to return balls that are no longer needed
 func (c *BallClock) InitHour(hourAdvance chan ClockBallInTransit, ballReturn chan ClockBallInTransit) {
 	c.hour = BallStack{balls: make([]ClockBall, 11)}
-	// Send the last ball back to the ballReturn no additional stages
+	// Send the last ball back to the ballReturn no additional states
 	go MoveBalls(&c.hour, hourAdvance, ballReturn, ballReturn)
 }
 
+// Create a ball clock and wire up the channels
 func CreateBallClock(balls int) (clock *BallClock) {
 	clock = &BallClock{advanceTime: make(chan int),
 		done: make(chan int)}
@@ -355,18 +399,26 @@ func CreateBallClock(balls int) (clock *BallClock) {
 	return clock
 }
 
+// Has the ball clock returned to its original state?
 func (c *BallClock) HasRepeated() bool {
 	return c.queue.HasRepeated()
 }
 
+// How many minutes have passed?
 func (c *BallClock) MinutesPassed() int {
 	return c.totalMinutes
 }
 
+// Return a string that displays the current time of the clock
 func (c *BallClock) Time() string {
 	return fmt.Sprintf("Time is : %d:%02d", c.hour.Count()+1, (c.fiveMinute.Count()*5 + c.minute.Count()))
 }
 
+// Print the current state of the clock
+// Min:[b1,b4]
+// FiveMin:[b6,b10,b17,b2]
+// Hour:[]
+// Main:[b12,b19,b3,...]
 func (c *BallClock) PrintTimeStacks() string {
 	return fmt.Sprintf("Min:%v\nFiveMin:%v\nHour:%v\nMain:%v\n", c.minute, c.fiveMinute, c.hour, c.queue)
 }
